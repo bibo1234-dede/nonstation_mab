@@ -180,12 +180,15 @@ satRes.time_s = toc(ticSat);
 end
 
 function Q = init_random_Q(params, N, K)
-%rng(params.randomSeed, "twister");
+rng(params.randomSeed, "twister");  % 固定全局 seed
 Q = complex(zeros(N, N, K));
+% 稳健初值：均分功率而不是完全随机
+% 这样避免初值过于极端导致 CVX 数值不稳定
 for k = 1:K
-    w = randn(N, 1) + 1j*randn(N, 1);
+    % 方案 1：完全均分初值（最稳定）
+    w = ones(N, 1) + 1j*randn(N, 1)*0.1;  % 主要方向相同，微小扰动
     w = w / norm(w, 2);
-    w = sqrt(params.P_W) * w;
+    w = sqrt(params.P_W / K) * w;  % 均分功率
     Q(:, :, k) = w * w';
 end
 end

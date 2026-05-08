@@ -5,22 +5,16 @@ function [out, Q, N_counts, t_last_served] = select_satellites_mab_wdop_dynamic_
 % The feasible arm set is rebuilt at every time step from the current WDOP.
 % MAB state is then remapped by the actual satellite-combination rows so Q
 % and counts stay attached to the same arm even when the sorted feasible list
-% changes. Reported utility uses bps; UCB averages are normalized to Gbps.
+% changes. Rewards are kept in log-rate units consistently.
 
 S = params.S;
 C = params.C;
 I = params.I;
 
-if nargin < 10 || isempty(user_groups)
-    user_groups = default_user_groups(C);
-end
-
 comb = nchoosek(1:S, I);
 maxArms = 10;
 cUcb = 1.0;
 rho = 0.98;
-useQosWeights = isfield(params, "alg") && isfield(params.alg, "useQosWeights") ...
-    && params.alg.useQosWeights;
 
 prefComb = build_feasible_arms(params, scenario, chan, comb, C, maxArms);
 
@@ -85,18 +79,13 @@ bf_t = ican.solve_beamforming_dc(params, chan, alpha_t);
 R_c_bps = bf_t.R_c_bps;
 
 for c = 1:C
-    if useQosWeights
-        reward_weight = qos_weight(c, user_groups);
-    else
-        reward_weight = 1.0;
-    end
-    reward_per_user(c) = reward_weight * max(R_c_bps(c), 0);
-    reward_for_ucb = reward_per_user(c) / 1e9;
+    w = qos_weight(c, user_groups);
+    reward_per_user(c) = w * R_c_bps(c);  % 加权速率，与波束成形目标一致
 
     a = action_t(c);
     old_count = N_counts{c}(a);
     new_count = old_count + 1;
-    Q.values{c}(a) = (Q.values{c}(a) * old_count + reward_for_ucb) / new_count;
+    Q.values{c}(a) = (Q.values{c}(a) * old_count + reward_per_user(c)) / new_count;
     N_counts{c}(a) = new_count;
 end
 
@@ -109,7 +98,6 @@ end
 out = struct();
 out.alpha = alpha_t;
 out.utility_bps = total_reward;
-out.bf = bf_t;
 out.best_alpha = best_alpha;
 out.best_utility = best_U;
 out.reward_per_user = reward_per_user;
@@ -122,13 +110,6 @@ if isempty(t_last_served) || numel(t_last_served) ~= C
 end
 t_last_served(:) = t;
 
-end
-
-function user_groups = default_user_groups(C)
-user_groups = struct();
-user_groups.URLLC = struct("user_ids", []);
-user_groups.eMBB = struct("user_ids", 1:C);
-user_groups.mMTC = struct("user_ids", []);
 end
 
 function prefComb = build_feasible_arms(params, scenario, chan, comb, C, maxArms)

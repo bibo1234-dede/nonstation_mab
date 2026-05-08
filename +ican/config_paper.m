@@ -58,7 +58,6 @@ params.alg = struct();
 params.alg.maxDcIters = 5;
 params.alg.utilityTol = 1e-9; % accept if U_new >= U_old - tol
 params.alg.maxCfgPasses = 10; % allow multiple passes until convergence
-params.alg.useQosWeights = false; % keep MAB reward aligned with plotted sum-rate by default
 
 % --- Logging ---
 params.log = struct();
