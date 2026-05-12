@@ -40,11 +40,6 @@ for s = 1:S
         g_pl = (params.lambda_m / (4*pi*d))^2;
         g_at = params.atmosAtten;
 
-        % --- 增益补偿（与仓库 Python 对齐，约 75 dB）---
-        effective_gain_dB = 75;                    % 根据实际仿真效果可微调
-        effective_gain = 10^(effective_gain_dB/10);
-
-
         % 随机相位。
         theta = 2*pi*rand();
 

@@ -12,6 +12,8 @@ S = params.S;
 C = params.C;
 N = params.N;
 
+cvx_solver(char(params.cvx.solver));
+
 if isempty(satIdx)
     satIdx = 1:S;
 end
@@ -197,10 +199,8 @@ K = numel(Hi);
 N = size(Q_prev, 1);
 
 if params.cvx.quiet
-    cvx_solver(char(params.cvx.solver))
     cvx_begin sdp quiet
 else
-    cvx_solver(char(params.cvx.solver))
     cvx_begin sdp
 end
     variable Q(N, N, K) complex
@@ -226,10 +226,12 @@ end
     end
     maximize(obj)
     subject to
+        totalPower = 0;
         for k = 1:K
             Q(:, :, k) == hermitian_semidefinite(N);
-            real(trace(Q(:, :, k))) <= P;
+            totalPower = totalPower + real(trace(Q(:, :, k)));
         end
+        totalPower <= P;
 cvx_end
 
 Q_new = Q;

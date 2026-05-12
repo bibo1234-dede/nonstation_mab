@@ -48,7 +48,6 @@ end
 sel = struct();
 sel.alpha = alpha;
 sel.satIdx = satIdx;
-sel.gdop = wdop;    % 保持字段名兼容，存的是WDOP值
 sel.wdop = wdop;
 sel.wdopAll = wdopAll;
 end

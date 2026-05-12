@@ -1,60 +1,55 @@
 function wdop = compute_wdop(pUE_c, pSat_sel, d_vec)
-% COMPUTE_WDOP  计算基于路径损耗加权的 WDOP（归一化版本）。
-%
-% 输入：
-%   pUE_c    - 用户位置 [1x3]
-%   pSat_sel - 所选卫星位置 [Ssel x 3]
-%   d_vec    - 所选卫星到该用户的距离 [Ssel x 1]，单位: 米
-%
-% 输出：
-%   wdop     - 加权几何精度衰减因子（无量纲，量级与GDOP相同）
-%
-% 权重定义：
-%   sigma_i = d_{s,c} / d_ref，其中 d_ref = 600km（LEO轨道高度）
-%   权重 W_ii = 1 / sigma_i = d_ref / d_{s,c}
-%   距离越远，权重越小（信号质量越差）
-%
-% 对应论文公式：
-%   G' = W * G
-%   WDOP = sqrt(trace((G'^T G')^{-1}))
+% COMPUTE_WDOP  与 Python 实现一致的 WDOP 计算
+% 构造 A 矩阵 (I x 4)：每行为 [-unit_vec, 1]（位置 + 钟差），权重按 1/d^2
 
 pc = pUE_c(:);
 Ssel = size(pSat_sel, 1);
 
-if Ssel < 3
+if Ssel < 4
     wdop = inf;
     return;
 end
 
 if numel(d_vec) ~= Ssel
-    error("compute_wdop:SizeMismatch", ...
-        "d_vec长度(%d)与卫星数(%d)不匹配.", numel(d_vec), Ssel);
+    error("compute_wdop:SizeMismatch", "d_vec长度(%d)与卫星数(%d)不匹配.", numel(d_vec), Ssel);
 end
 
-% 构建几何矩阵 G（Ssel x 3）
-G = zeros(Ssel, 3);
+% 构建 A 矩阵 (I x 4)
+A = zeros(Ssel, 4);
+dist_list = zeros(Ssel, 1);
 for k = 1:Ssel
     ps = pSat_sel(k, :).';
-    d = norm(pc - ps, 2);
-    G(k, :) = ((pc - ps) ./ d).';
+    diff = ps - pc; % from UE to satellite
+    d = norm(diff, 2);
+    if d <= 1e-12
+        wdop = inf;
+        return;
+    end
+    dist_list(k) = d;
+    A(k, 1:3) = (-diff ./ d).';
+    A(k, 4) = 1.0;
 end
 
-% 构建权重矩阵 W = diag(1/sigma_i)
-% sigma_i = d_{s,c} / d_ref，归一化到合理的量级
-d_ref = 600e3;  % 参考距离（600 km，低轨高度）
-sigma_vec = d_vec(:) / d_ref;  % 归一化权重，量纲为1
-sigma_vec = max(sigma_vec, 0.1);  % 防止异常值和除零
-W = diag(1 ./ sigma_vec);        % W_ii = d_ref / d_{s,c}
+% 权重：按距离平方倒数
+w = 1.0 ./ max(dist_list(:).^2, 1e-12);
 
-% 加权几何矩阵
-G_prime = W * G;
+% 归一化权重（按均值），避免数值尺度问题
+mean_w = mean(w);
+if mean_w <= 0
+    wdop = inf;
+    return;
+end
+w = w / mean_w;
 
-% 计算 WDOP
-GTG = G_prime.' * G_prime;
-if rcond(GTG) < 1e-12
+% 构造加权信息矩阵 H = A' W A
+W = diag(w);
+H = A.' * W * A;
+
+% 数值保护
+if rcond(H) < 1e-12
     wdop = inf;
     return;
 end
 
-wdop = sqrt(trace(inv(GTG)));
+wdop = sqrt(trace(inv(H)));
 end

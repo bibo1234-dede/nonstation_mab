@@ -1,12 +1,13 @@
+
 function params = config_paper(varargin)
 % CONFIG_PAPER  论文仿真参数统一配置。
  
 
 parser = inputParser();
 parser.addParameter("randomSeed", 1, @(x) isnumeric(x) && isscalar(x));
-parser.addParameter("I", 6, @(x) isnumeric(x) && isscalar(x) && x == floor(x) && x >= 3);
-parser.addParameter("S", 12, @(x) isnumeric(x) && isscalar(x) && x == floor(x) && x >= 1);
-parser.addParameter("C", 7, @(x) isnumeric(x) && isscalar(x) && x == floor(x) && x >= 1);
+parser.addParameter("I", 4, @(x) isnumeric(x) && isscalar(x) && x == floor(x) && x >= 3);
+parser.addParameter("S", 18, @(x) isnumeric(x) && isscalar(x) && x == floor(x) && x >= 1);
+parser.addParameter("C", 10, @(x) isnumeric(x) && isscalar(x) && x == floor(x) && x >= 1);
 parser.parse(varargin{:});
 opts = parser.Results;
 
@@ -20,11 +21,13 @@ params.satAltMax_m = 1200e3;
 params.cellRadius_m = 43.3e3;
 params.Nx = 4;
 params.Ny = 4;
-params.fc_Hz = 2e9;
-params.bandwidth_Hz = 10e6; % 对应远程复现代码的带宽
+params.fc_Hz = 2e9;%（4）
+params.bandwidth_Hz = 50e6; % 对应远程复现代码的带宽（10）
 % 使用与远程仓库一致的发射功率标度（远程 config: P_max = 30 dBm -> 0 dBW）
 params.P_dBw = 0; % dBW
 params.noisePSD_dBmHz = -174;
+params.noisePSD_WHz = 10^((params.noisePSD_dBmHz - 30)/10);
+params.sigma2_W = params.noisePSD_WHz * params.bandwidth_Hz;
 params.gdopThreshold = 6; % 对应公式(9c)中的阈值 gamma
 params.bfConvThresh_bps = 2e6; % 对应算法1中的收敛阈值 delta
 
@@ -33,8 +36,10 @@ params.c0 = 299792458; % 光速
 params.lambda_m = params.c0 / params.fc_Hz; % 波长
 params.N = params.Nx * params.Ny;
 params.P_W = 10^(params.P_dBw/10); % dBw -> W
-params.noisePSD_WHz = 10^((params.noisePSD_dBmHz - 30)/10);
-params.sigma2_W = params.noisePSD_WHz * params.bandwidth_Hz;
+
+% --- 等效信道增益补偿（保持为适中数值，避免 CVX 数值病态）---
+params.effectiveGain_dB = 10;                         % dB
+params.effectiveGain_linear = 10^(params.effectiveGain_dB / 10);  % 功率倍数
 
 % --- 问题规模 ---
 params.S = opts.S;
@@ -71,17 +76,28 @@ params.alg.maxCfgPasses = 10; % 允许多轮配置迭代，直到收敛
 
 % --- 用户分组配置 ---
 params.grouping = struct();
-params.grouping.method = "spectral"; % 可选："spectral" 或 "qos"
+params.useGrouping = false;
+params.grouping.method = "spectral"; 
 params.grouping.numGroups = 3;
 params.grouping.sigma_d = 50e3;
 params.grouping.sigma_h = 0.5;
-params.grouping.qosRatios = [0.5, 0.3, 0.2];
 
 % --- MAB 配置 ---
 params.mabMaxArms = 20;
+params.candidatePoolSize = 80;
+params.candidateRateWeight = 1.0;
+params.candidateWdopWeight = 0.25;
+params.debugPrintCandidateArms = false;
+params.debugPrintSelection = false;
+params.debugPrintCandidateLimit = 12;
 params.mabRho = 0.98;
 params.mabCucb = 1.0;
-params.wdopPenaltyLambda = 0.5;
+params.wdopPenaltyLambda = 0.12;
+params.wdopSoftMargin = 1.5;
+params.satLoadCap = 4;
+params.satLoadPenaltyLambda = 0.5;
+params.groupReuseBonusLambda = 0.15;
+params.userReusePenaltyLambda = 0.35;
 params.useParetoUCB = false;
 params.paretoAlpha = 0.5;
 
