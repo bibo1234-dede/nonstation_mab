@@ -1,9 +1,9 @@
 function logf(params, level, fmt, varargin)
- 
+% LOGF  按日志等级输出格式化消息。
 
 levels = struct("debug", 10, "info", 20, "warn", 30, "error", 40);
 if ~isfield(levels, string(level))
-    error("logf:BadLevel", "Unknown log level: %s", string(level));
+    error("logf:BadLevel", "未知的日志等级：%s", string(level));
 end
 if ~isfield(levels, string(params.log.level))
     minLevel = 20;

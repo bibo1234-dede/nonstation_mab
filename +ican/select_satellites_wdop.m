@@ -1,12 +1,12 @@
 function sel = select_satellites_wdop(params, scenario, chan)
-% select_satellites_wdop  基于WDOP最小化的贪婪选星算法
+% SELECT_SATELLITES_WDOP  基于 WDOP 最小化的贪婪选星算法。
 %
-% 相比原 select_satellites_gdop：
-%   将 compute_gdop 替换为 compute_wdop
-%   权重 sigma_i = d_{s,c}，来自 chan.d_m
-%   约束由 params.gdopThreshold 改为 params.wdopThreshold
+% 相比旧版 GDOP 选星：
+%   1) 将几何指标替换为 WDOP
+%   2) 权重来源改为 chan.d_m
+%   3) 约束阈值改为 params.wdopThreshold
 %
-% 输出结构体与原函数完全兼容，字段名保持一致
+% 输出结构体保持兼容，字段名沿用旧接口。
 
 S = params.S;
 C = params.C;

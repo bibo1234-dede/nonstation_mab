@@ -1,7 +1,8 @@
 function chan = compute_channels(params, scenario)
+% COMPUTE_CHANNELS  根据场景位置计算信道、距离和方向余弦。
 
 
-%rng(params.randomSeed, "twister");
+% 如需固定随机相位，可在此处开启随机种子设置。
 
 S = params.S;
 C = params.C;
@@ -35,11 +36,16 @@ for s = 1:S
         vy = (1/sqrt(Ny)) * exp(-1j*pi*(0:Ny-1).'*theta_y);
         v = kron(vx, vy); % (Nx*Ny) x 1
 
-        % Pathloss (Eq.(1)).
+        % 路径损耗（对应公式(1)）。
         g_pl = (params.lambda_m / (4*pi*d))^2;
         g_at = params.atmosAtten;
 
-        % Random phase.
+        % --- 增益补偿（与仓库 Python 对齐，约 75 dB）---
+        effective_gain_dB = 75;                    % 根据实际仿真效果可微调
+        effective_gain = 10^(effective_gain_dB/10);
+
+
+        % 随机相位。
         theta = 2*pi*rand();
 
         h(:, c, s) = sqrt(g_pl * g_at * N) * exp(-1j*theta) * v;

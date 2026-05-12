@@ -1,5 +1,5 @@
 function bf = solve_beamforming_dc(params, chan, alpha, varargin)
-
+% SOLVE_BEAMFORMING_DC  使用 DC + CVX 求解多卫星波束赋形。
 
 parser = inputParser();
 parser.addParameter("warmStart", struct(), @(x) isstruct(x));
@@ -80,7 +80,7 @@ bf.sat = sat;
 end
 
 function satRes = solve_dc_one_satellite(params, h_s, initQ)
-% Solve Algorithm 1 for a single satellite.
+% 对单颗卫星执行算法1的求解过程。
 
 B = params.bandwidth_Hz;
 sigma2 = params.sigma2_W;
@@ -88,7 +88,7 @@ P = params.P_W;
 
 [N, K] = size(h_s);
 
-% Precompute H_i = h_i h_i^H for linear trace forms.
+% 预计算 H_i = h_i h_i^H，便于写成迹形式。
 Hi = cell(K, 1);
 for i = 1:K
     hi = h_s(:, i);
@@ -132,8 +132,8 @@ for iter = 1:params.alg.maxDcIters
     cvxOptvalLast = cvxOptval;
 
     if ~contains(cvxStatus, "Solved")
-        ican.logf(params, "error", "CVX failed in DC step (status=%s). Try params.cvx.quiet=false for solver output.", cvxStatus);
-        error("solve_beamforming_dc:CvxFailed", "CVX failed in DC step (status=%s).", cvxStatus);
+        ican.logf(params, "error", "CVX 在 DC 步骤中失败（状态=%s），请将 params.cvx.quiet 设为 false 查看求解器输出。", cvxStatus);
+        error("solve_beamforming_dc:CvxFailed", "CVX 在 DC 步骤中失败（状态=%s）。", cvxStatus);
     end
 
     sumRate_new = sum_rate_from_Q(B, sigma2, Hi, Q_new);
@@ -156,7 +156,7 @@ end
 Q_opt = Q_prev;
 sumRateFromQ_bps = sumRate_prev;
 
-% Rank-1 approximation to obtain w (Algorithm 1, step 10).
+    % 采用秩1近似恢复波束向量（对应算法1第10步）。
 w = complex(zeros(N, K));
 for k = 1:K
     Qk = (Q_opt(:, :, k) + Q_opt(:, :, k)')/2;
@@ -191,17 +191,18 @@ end
 end
 
 function [Q_new, cvxStatus, cvxOptval] = solve_cvx_dc_step(params, B, sigma2, P, Hi, Q_prev, denomPrev)
-% One convexified DC step (problem (15)).
+% 进行一次凸化的 DC 步骤（对应问题(15)）。
 
 K = numel(Hi);
 N = size(Q_prev, 1);
 
 if params.cvx.quiet
+    cvx_solver(char(params.cvx.solver))
     cvx_begin sdp quiet
 else
+    cvx_solver(char(params.cvx.solver))
     cvx_begin sdp
 end
-    cvx_solver(char(params.cvx.solver))
     variable Q(N, N, K) complex
 
     expression obj
@@ -217,7 +218,7 @@ end
             end
         end
         
-        % log(sigma2 + x) = log(sigma2) + log(1 + x/sigma2).
+        % log(sigma2 + x) = log(sigma2) + log(1 + x/sigma2)。
         powAllN = powAll / sigma2;
         powInterfN = powInterf / sigma2;
         denomPrevN = denomPrev(i) / sigma2;
