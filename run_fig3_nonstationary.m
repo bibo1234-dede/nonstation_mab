@@ -13,7 +13,7 @@ rng(params.randomSeed, "twister");
 T_total = 200;      % 总时间步数
 dt_s = 1;           % 每步时长（秒），用于时间戳
 
-ican.logf(params, "info", "=== 非稳态 MAB 仿真开始 ===");
+ican.logf(params, "info", "=== 非稳态 MAB 仿真开始（卫星移动版本） ===");
 ican.logf(params, "info", "Params: S=%d C=%d I=%d T_total=%d", ...
     params.S, params.C, params.I, T_total);
 
@@ -32,6 +32,23 @@ scenario = ican.create_scenario_fig3(params);
 
 ican.logf(params, "info", "Scenario: satRingRadius=%.1f km", scenario.satRingRadius_m/1e3);
 
+% ========== 卫星运动参数 ==========
+% 设置每个卫星的角速度（弧度/时间步）
+% 使用更快的旋转速度，使得选中卫星的相对几何位置改变
+% 不同卫星有不同速度：让它们不能保持均匀分布
+satellite_angular_velocities = [1.0; 1.15; 0.85; 1.2; 0.9; 1.1; 0.95] * 2*pi / 50;  % 50 步完成一圈（更快），且速度不同
+% 这样做的效果：不同卫星以不同速度旋转，导致任何时刻的相对位置都在改变
+
+% 初始化卫星初始角度（从 scenario.pSat 计算）
+sat_initial_angles = zeros(params.S, 1);
+for s = 1:params.S
+    sat_initial_angles(s) = atan2(scenario.pSat(s, 2), scenario.pSat(s, 1));
+end
+satellite_radius = scenario.satRingRadius_m;  % 卫星轨道半径
+
+ican.logf(params, "info", "卫星运动模式：差异化轨道旋转（不同速度）");
+ican.logf(params, "info", "角速度范围：%.4f 到 %.4f 弧度/步", min(satellite_angular_velocities), max(satellite_angular_velocities));
+
 % MAB 状态初始化（仅一次，跨越整个时间序列）
 Q_mab = [];           % 第一次调用时初始化
 N_counts_mab = [];
@@ -49,7 +66,21 @@ ican.logf(params, "info", "=== 开始时间序列仿真，共 %d 步 ===", T_tot
 
 % ========== 主时间循环 ==========
 for t = 1:T_total
-    % 1. 生成新信道（每步信道不同，随机变化）
+    % 0. 更新卫星位置（轨道运动）
+    for s = 1:params.S
+        current_angle = sat_initial_angles(s) + satellite_angular_velocities(s) * (t - 1);
+        scenario.pSat(s, 1) = satellite_radius * cos(current_angle);
+        scenario.pSat(s, 2) = satellite_radius * sin(current_angle);
+        % 高度保持不变
+    end
+    
+    % 调试输出：检查卫星是否移动
+    if mod(t, 50) == 1 || t == 1
+        ican.logf(params, "info", "t=%d: Sat1 pos=[%.1f, %.1f] km, Sat4 pos=[%.1f, %.1f] km", ...
+            t, scenario.pSat(1,1)/1e3, scenario.pSat(1,2)/1e3, scenario.pSat(4,1)/1e3, scenario.pSat(4,2)/1e3);
+    end
+    
+    % 1. 生成新信道（每步信道不同，卫星位置改变 + 随机信道变化）
     chan = ican.compute_channels(params, scenario);
     
     % 2. Baseline：WDOP 贪心（每步重新计算，不学习）
