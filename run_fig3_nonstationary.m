@@ -6,14 +6,8 @@ addpath(thisDir);
 
 % 主流程：参数初始化 -> 场景构建 -> 用户分组 -> 时序仿真 -> 结果导出
 params = ican.config_paper("randomSeed", 1, "I", 4, "S", 18, "C", 10);
-params.grouping.numGroups = 3;
-params.grouping.numLevels = 3;
-params.grouping.method = "by_level";      % 选择分组方式："spectral" 或 "by_level"
-params.useGrouping = false;               % 启用分组
-params.log.level = "info";
-params.cvx.quiet = true; % 默认静默，失败时自动启用详细日志重试
-params.log.dir = fullfile(thisDir, "logs");
 rng(params.randomSeed, "twister");
+grouping_method = lower(string(params.grouping.method));
 
 % 是否运行 Baseline（WDOP 贪心选星 + 波束赋形）
 % 设为 false 时，仅运行 Proposal 路径。
@@ -60,9 +54,10 @@ if params.log.printArmSpace
     print_full_arm_space(params, scenario, chan);
 end
 
+similarity_matrix = [];
 if params.useGrouping
-    % 基于优先级的分组
-    [user_groups, level_info] = ican.user_grouping_by_level(params, scenario, chan);
+    [user_groups, group_info] = build_user_groups(params, scenario, chan);
+    similarity_matrix = get_group_info_field(group_info, "similarity_matrix", []);
     numGroups = numel(user_groups.group_ids);
     fprintf("=== 用户分组完成：%d 组 ===\n", numGroups);
     for k = 1:numGroups
@@ -96,13 +91,21 @@ for t = 1:T_total
     gain_amplitude = sqrt(params.effectiveGain_linear);   % 幅度 = sqrt(10^(dB/10))
     chan.h = chan.h * gain_amplitude;
 
-    % 第 1 步：在初始时刻更新用户分组（仅 by_level 模式）
+    % 第 1 步：在初始时刻更新用户分组
     if params.useGrouping && t == 1
-        [user_groups, level_info] = ican.user_grouping_by_level(params, scenario, chan);
+        [user_groups, group_info] = build_user_groups(params, scenario, chan);
+        similarity_matrix = get_group_info_field(group_info, "similarity_matrix", similarity_matrix);
         numGroups = numel(user_groups.group_ids);
         group_rate_base_over_time = nan(T_total, numGroups);
         group_rate_prop_over_time = zeros(T_total, numGroups);
         fprintf("=== 用户分组完成：%d 组 ===\n", numGroups);
+    elseif params.useGrouping && grouping_method == "orthogonality" && mod(t - 1, get_grouping_interval(params)) == 0
+        [user_groups, group_info] = build_user_groups(params, scenario, chan);
+        similarity_matrix = get_group_info_field(group_info, "similarity_matrix", similarity_matrix);
+        numGroups = numel(user_groups.group_ids);
+        group_rate_base_over_time = nan(T_total, numGroups);
+        group_rate_prop_over_time = zeros(T_total, numGroups);
+        fprintf("=== 正交性分组已在 t=%d 重分组：%d 组 ===\n", t, numGroups);
     end
 
     % Baseline：可选执行（默认关闭）
@@ -324,8 +327,19 @@ avg_group_prop = mean(group_rate_prop_over_time(late_start:end, :), 1);
 bar_data = [avg_group_base(:), avg_group_prop(:)];
 b = bar(bar_data, 'grouped');
 if numGroups > 0
-    b(1).FaceColor = color_urllc;
-    b(2).FaceColor = color_embb;
+    % 某些无头/远程环境下 bar() 可能返回 GraphicsPlaceholder，直接设置属性会报错
+    try
+        if numel(b) >= 2
+            if isprop(b(1), 'FaceColor')
+                b(1).FaceColor = color_urllc;
+            end
+            if isprop(b(2), 'FaceColor')
+                b(2).FaceColor = color_embb;
+            end
+        end
+    catch
+        % 无法设置图形属性（可能在无图形环境中），静默跳过
+    end
 end
 xlabel('分组索引');
 ylabel('平均速率（Mbps）');
@@ -479,6 +493,45 @@ function user_groups = default_user_groups_all_users(C)
     user_groups.weights = 1;
     user_groups.group_assignment = ones(C, 1);
     user_groups.numGroups = 1;
+end
+
+function [user_groups, group_info] = build_user_groups(params, scenario, chan)
+    grouping = get_param_value_local(params, "grouping", struct());
+    method = "random_priority";
+    if isstruct(grouping) && isfield(grouping, "method") && ~isempty(grouping.method)
+        method = string(grouping.method);
+    end
+
+    switch lower(method)
+        case "orthogonality"
+            [user_groups, group_info] = ican.user_grouping_channel_orthogonality(params, scenario, chan);
+        case {"random_priority", "priority"}
+            [user_groups, group_info] = ican.user_grouping_random_priority(params, scenario, chan);
+        otherwise
+            [user_groups, group_info] = ican.user_grouping_random_priority(params, scenario, chan);
+    end
+end
+
+function value = get_group_info_field(group_info, fieldName, defaultValue)
+    value = defaultValue;
+    if isstruct(group_info) && isfield(group_info, fieldName)
+        value = group_info.(fieldName);
+    end
+end
+
+function value = get_param_value_local(params, fieldName, defaultValue)
+    value = defaultValue;
+    if isfield(params, fieldName)
+        value = params.(fieldName);
+    end
+end
+
+function interval = get_grouping_interval(params)
+    interval = 50;
+    if isfield(params, "grouping") && isfield(params.grouping, "regroupInterval")
+        interval = params.grouping.regroupInterval;
+    end
+    interval = max(1, round(interval));
 end
 
 function rate_per_group = compute_group_rates(rate_row, user_groups)

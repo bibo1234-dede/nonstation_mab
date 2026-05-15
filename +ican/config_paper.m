@@ -18,8 +18,8 @@ params.satHeight_m = 600e3;        % 参考卫星轨道高度，单位 m
 % 卫星轨道高度范围：用于生成多轨道面卫星时抽样的上下界
 params.satAltMin_m = 600e3;        % 最低轨道高度，单位 m
 params.satAltMax_m = 1200e3;       % 最高轨道高度，单位 m
-params.Nx = 8;                     % 阵列 x 方向天线数
-params.Ny = 8;                     % 阵列 y 方向天线数
+params.Nx = 4;                     % 阵列 x 方向天线数
+params.Ny = 4;                     % 阵列 y 方向天线数
 params.fc_Hz = 2e9;                % 载波频率，单位 Hz
 params.bandwidth_Hz = 50e6;        % 系统带宽，单位 Hz
 % 发射功率的 dBW 标度；0 dBW = 1 W，20 dBW = 100 W
@@ -48,7 +48,7 @@ params.I = opts.I;                 % 每个用户选择的卫星数
  
 params.scenario = struct();
 % 采用与 GitHub 015 仓库一致的默认场景风格：多轨道面卫星 + 局部聚集用户
-params.scenario.satLayout = "multi_orbit"; % 卫星布局模式：multi_orbit / uniform_ring / clustered_ring
+params.scenario.satLayout = "multi_orbit"; % 卫星布局模式
 
 % --- 信道模型开关（对应公式(1)） ---
 params.atmosAtten = 1.0; % 大气衰减系数，1 表示不额外衰减
@@ -63,10 +63,13 @@ params.alg = struct();
 params.alg.maxDcIters = 5;        % 单次卫星波束成形的 DC 最大迭代次数 (降低以提速 & 减少 MOSEK 数值问题)
 
 % --- 用户分组配置 ---
-% 仅支持 by_level（随机优先级分组）模式
+% 支持 random_priority（随机优先级分组）与 orthogonality（信道正交性分组）
 params.grouping = struct();
-params.useGrouping = false;           % 是否启用用户分组
+params.useGrouping = true;            % 是否启用用户分组
 params.grouping.numLevels = 3;        % 按级别分组时的级别数
+params.grouping.numGroups = 3;        % 按正交性分组时的组数
+params.grouping.method = "orthogonality"; % 分组方式：random_priority / orthogonality
+params.grouping.regroupInterval = 50; % 正交性分组的重分组周期（时隙）
 
 % --- MAB 配置 ---
 params.mabMaxArms = 50;             % 每个用户保留的最大候选臂数

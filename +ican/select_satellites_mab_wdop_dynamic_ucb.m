@@ -37,11 +37,16 @@ end
 comb = nchoosek(1:S, I);
 arm_bank = build_candidate_arms(params, scenario, chan, comb, C, maxArms, candidatePoolSize, candidateRateWeight, candidateWdopWeight, wdopThreshold, user_groups);
 
-if isempty(Q) || ~isstruct(Q) || ~isfield(Q, "q1") || ~isfield(Q, "q2") || ~isfield(Q, "arms")
+if isempty(Q) || ~isstruct(Q) || ~isfield(Q, "q1_map") || ~isfield(Q, "q2_map") || ~isfield(Q, "n_map")
     Q = struct();
-    Q.q1 = cell(C, 1);
-    Q.q2 = cell(C, 1);
-    Q.arms = cell(C, 1);
+    Q.q1_map = cell(C, 1);
+    Q.q2_map = cell(C, 1);
+    Q.n_map = cell(C, 1);
+    for c = 1:C
+        Q.q1_map{c} = containers.Map('KeyType', 'int64', 'ValueType', 'double');
+        Q.q2_map{c} = containers.Map('KeyType', 'int64', 'ValueType', 'double');
+        Q.n_map{c} = containers.Map('KeyType', 'int64', 'ValueType', 'double');
+    end
     Q.last_t = max(t - 1, 0);
 end
 if ~isfield(Q, "last_t")
@@ -52,14 +57,15 @@ if isempty(N_counts) || ~iscell(N_counts)
     N_counts = cell(C, 1);
 end
 
-[Q, N_counts] = align_state_to_arms(Q, N_counts, arm_bank, C);
-
+% 衰减过期的计数（模拟非稳态环境）
 elapsed = max(0, t - Q.last_t);
 if elapsed > 0
     decay = rho^elapsed;
     for c = 1:C
-        if ~isempty(N_counts{c})
-            N_counts{c} = N_counts{c} * decay;
+        keys = Q.n_map{c}.keys();
+        for i = 1:numel(keys)
+            old_n = Q.n_map{c}(keys{i});
+            Q.n_map{c}(keys{i}) = old_n * decay;
         end
     end
     Q.last_t = t;
@@ -81,6 +87,7 @@ end
 
 alpha_t = zeros(S, C);
 action_t = zeros(C, 1);
+action_arm_id = zeros(C, 1);
 selected_wdop = zeros(C, 1);
 selected_load_penalty = zeros(C, 1);
 selected_reuse_penalty = zeros(C, 1);
@@ -96,9 +103,28 @@ for orderIdx = 1:numel(user_order)
         error("select_satellites_mab_wdop_dynamic_ucb:NoArms", "UE%d 没有可选臂。", c);
     end
 
-    counts = max(N_counts{c}, eps);
-    q1 = Q.q1{c};
-    q2 = Q.q2{c};
+    arm_ids = arm_bank(c).arm_ids;  % 新：臂哈希 ID 数组
+    
+    % 从 Map 中查询每个臂的 Q 值
+    q1 = zeros(Kc, 1);
+    q2 = zeros(Kc, 1);
+    counts = zeros(Kc, 1);
+    
+    for k = 1:Kc
+        arm_id = arm_ids(k);
+        if Q.q1_map{c}.isKey(arm_id)
+            q1(k) = Q.q1_map{c}(arm_id);
+            q2(k) = Q.q2_map{c}(arm_id);
+            counts(k) = Q.n_map{c}(arm_id);
+        else
+            % 新臂：初始化为 0
+            q1(k) = 0;
+            q2(k) = 0;
+            counts(k) = 0;
+        end
+    end
+    
+    counts = max(counts, eps);
     exploration = cUcb * sqrt(log(max(t, 2)) ./ counts);
     ucb1 = q1 + exploration;
     ucb2 = q2 + exploration;
@@ -140,6 +166,7 @@ for orderIdx = 1:numel(user_order)
     end
 
     action_t(c) = best_a;
+    action_arm_id(c) = arm_ids(best_a);  % 新：保存臂哈希 ID
     chosen_sats = arm_bank(c).arms(best_a, :);
     alpha_t(chosen_sats, c) = 1;
     selected_wdop(c) = wdopVals(best_a);
@@ -162,9 +189,21 @@ end
 bf_t = ican.solve_beamforming_dc(params, chan, alpha_t);
 R_c_bps = bf_t.R_c_bps(:);
 
+% 更新 Q 值（写入 Map）
 for c = 1:C
-    a = action_t(c);
-    old_count = N_counts{c}(a);
+    chosen_arm_id = action_arm_id(c);  % 新：使用臂哈希 ID
+    
+    % 查询旧的计数和 Q 值
+    if Q.q1_map{c}.isKey(chosen_arm_id)
+        old_count = Q.n_map{c}(chosen_arm_id);
+        old_q1 = Q.q1_map{c}(chosen_arm_id);
+        old_q2 = Q.q2_map{c}(chosen_arm_id);
+    else
+        old_count = 0;
+        old_q1 = 0;
+        old_q2 = 0;
+    end
+    
     new_count = rho * old_count + 1;
 
     comm_norm = user_weights(c) * max(R_c_bps(c), 0) / rate_ref_bps;
@@ -176,9 +215,13 @@ for c = 1:C
     soft_reward = user_weights(c) * max(R_c_bps(c), 0) / 1e9 - wdopPenaltyLambda * penalty - satLoadPenaltyLambda * selected_load_penalty(c) - userReusePenaltyLambda * selected_reuse_penalty(c);
     soft_reward = soft_reward(1);
 
-    Q.q1{c}(a) = (rho * old_count * Q.q1{c}(a) + comm_norm) / new_count;
-    Q.q2{c}(a) = (rho * old_count * Q.q2{c}(a) + pos_util) / new_count;
-    N_counts{c}(a) = new_count;
+    % 更新 Q 值（写入 Map）
+    new_q1 = (rho * old_count * old_q1 + comm_norm) / new_count;
+    new_q2 = (rho * old_count * old_q2 + pos_util) / new_count;
+    
+    Q.q1_map{c}(chosen_arm_id) = new_q1;
+    Q.q2_map{c}(chosen_arm_id) = new_q2;
+    Q.n_map{c}(chosen_arm_id) = new_count;
 
     user_comm_norm(c) = comm_norm;
     user_pos_util(c) = pos_util;
@@ -219,7 +262,7 @@ t_last_served(:) = t;
 end
 
 function arm_bank = build_candidate_arms(params, scenario, chan, comb, C, maxArms, candidatePoolSize, candidateRateWeight, candidateWdopWeight, wdopThreshold, user_groups)
-arm_bank = repmat(struct("arms", [], "wdop", [], "penalty", [], "rateProxy", [], "candidateScore", []), C, 1);
+arm_bank = repmat(struct("arms", [], "wdop", [], "penalty", [], "rateProxy", [], "candidateScore", [], "arm_ids", []), C, 1);
 
 % 提取用户优先级（如果存在）
 user_priority_levels = ones(C, 1);  % 默认都是优先级1
@@ -269,12 +312,20 @@ for c = 1:C
     chosenPenalty = compute_wdop_soft_penalty(chosenWdop, wdopThreshold, get_param_value(params, "wdopSoftMargin", 1.5));
     chosenScore = candidateScore(keepIdx);
 
+    % 新：为每个臂生成哈希 ID
+    chosenArmIds = zeros(size(chosenComb, 1), 1);
+    for k = 1:size(chosenComb, 1)
+        chosenArmIds(k) = compute_arm_id(chosenComb(k, :));
+    end
+
     arm_bank(c).arms = chosenComb;
     arm_bank(c).wdop = chosenWdop(:);
     arm_bank(c).penalty = chosenPenalty(:);
     arm_bank(c).rateProxy = chosenRateProxy(:);
     arm_bank(c).candidateScore = chosenScore(:);
+    arm_bank(c).arm_ids = chosenArmIds(:);  % 新：存储臂哈希 ID
 end
+
 end
 
 function print_candidate_arms(params, c, arms, wdopVals, rateProxyVals, candidateScore, limit)
@@ -291,35 +342,19 @@ for k = 1:limit
 end
 end
 
-function [Q, N_counts] = align_state_to_arms(Q, N_counts, arm_bank, C)
-for c = 1:C
-    newArms = arm_bank(c).arms;
-    Kc = size(newArms, 1);
-    newQ1 = zeros(Kc, 1);
-    newQ2 = zeros(Kc, 1);
-    newN = zeros(Kc, 1);
-
-    hasOldState = numel(Q.arms) >= c && ~isempty(Q.arms{c}) && ...
-        numel(Q.q1) >= c && ~isempty(Q.q1{c}) && ...
-        numel(Q.q2) >= c && ~isempty(Q.q2{c}) && ...
-        numel(N_counts) >= c && ~isempty(N_counts{c});
-
-    if hasOldState
-        oldArms = Q.arms{c};
-        oldQ1 = Q.q1{c};
-        oldQ2 = Q.q2{c};
-        oldN = N_counts{c};
-        [isMatch, oldIdx] = ismember(newArms, oldArms, "rows");
-        newQ1(isMatch) = oldQ1(oldIdx(isMatch));
-        newQ2(isMatch) = oldQ2(oldIdx(isMatch));
-        newN(isMatch) = oldN(oldIdx(isMatch));
-    end
-
-    Q.arms{c} = newArms;
-    Q.q1{c} = newQ1;
-    Q.q2{c} = newQ2;
-    N_counts{c} = newN;
+% 新函数：计算臂的稳定哈希 ID（基于卫星号码组合）
+function arm_id = compute_arm_id(sats)
+% 将卫星组合转换为稳定的哈希值（int64）
+% 例如 [1,3,7,17] 的哈希值在同一用户内总是相同的
+% 使用质数基数和多项式哈希避免冲突
+sats = sort(sats(:));  % 确保顺序一致
+primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29];  % 前 10 个质数，够用于 I≤10
+arm_id = int64(0);
+for i = 1:numel(sats)
+    prime_idx = min(i, numel(primes));
+    arm_id = arm_id + int64(sats(i)) * int64(primes(prime_idx)^(numel(sats)-i));
 end
+arm_id = abs(arm_id);  % 确保非负
 end
 
 function best_a = select_pareto_arm(ucb1, ucb2, paretoAlpha, penaltyVals, wdopPenaltyLambda, loadPenaltyVals, groupBonusVals, reusePenaltyVals, satLoadPenaltyLambda, groupReuseBonusLambda, userReusePenaltyLambda)
