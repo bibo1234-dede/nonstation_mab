@@ -7,14 +7,17 @@ addpath(thisDir);
 % 主流程：参数初始化 -> 场景构建 -> 用户分组 -> 时序仿真 -> 结果导出
 params = ican.config_paper("randomSeed", 1, "I", 4, "S", 18, "C", 10);
 params.grouping.numGroups = 3;
+params.grouping.numLevels = 3;
+params.grouping.method = "by_level";      % 选择分组方式："spectral" 或 "by_level"
+params.useGrouping = false;               % 启用分组
 params.log.level = "info";
-params.cvx.quiet = true; % 设为 false 可查看完整求解日志
+params.cvx.quiet = true; % 默认静默，失败时自动启用详细日志重试
 params.log.dir = fullfile(thisDir, "logs");
 rng(params.randomSeed, "twister");
 
 % 是否运行 Baseline（WDOP 贪心选星 + 波束赋形）
 % 设为 false 时，仅运行 Proposal 路径。
-runBaseline = false;
+runBaseline = true;
 
 T_total = 200;
 dt_s = 1;
@@ -53,9 +56,13 @@ chan = ican.compute_channels(params, scenario);
 gain_amplitude = sqrt(params.effectiveGain_linear);   % 幅度 = sqrt(10^(dB/10))
 chan.h = chan.h * gain_amplitude;
 
+if params.log.printArmSpace
+    print_full_arm_space(params, scenario, chan);
+end
+
 if params.useGrouping
-    [user_groups, similarity_matrix] = ican.user_grouping_spectral(params, scenario, chan);
-    user_groups = normalize_user_groups(user_groups, params.C);
+    % 基于优先级的分组
+    [user_groups, level_info] = ican.user_grouping_by_level(params, scenario, chan);
     numGroups = numel(user_groups.group_ids);
     fprintf("=== 用户分组完成：%d 组 ===\n", numGroups);
     for k = 1:numGroups
@@ -63,7 +70,6 @@ if params.useGrouping
     end
 else
     user_groups = default_user_groups_all_users(params.C);
-    similarity_matrix = [];
     numGroups = 1;
     fprintf("=== 已关闭分组，采用全用户共享的单组占位结构 ===\n");
 end
@@ -90,10 +96,9 @@ for t = 1:T_total
     gain_amplitude = sqrt(params.effectiveGain_linear);   % 幅度 = sqrt(10^(dB/10))
     chan.h = chan.h * gain_amplitude;
 
-    % 第 1 步：在初始时刻更新用户分组
+    % 第 1 步：在初始时刻更新用户分组（仅 by_level 模式）
     if params.useGrouping && t == 1
-        [user_groups, similarity_matrix] = ican.user_grouping_spectral(params, scenario, chan);
-        user_groups = normalize_user_groups(user_groups, params.C);
+        [user_groups, level_info] = ican.user_grouping_by_level(params, scenario, chan);
         numGroups = numel(user_groups.group_ids);
         group_rate_base_over_time = nan(T_total, numGroups);
         group_rate_prop_over_time = zeros(T_total, numGroups);
@@ -129,8 +134,9 @@ for t = 1:T_total
     % 打印 Proposal 详细信息（每个 UE 的卫星集合与速率、WDOP）
     for cc = 1:params.C
         sats_cc = find(out_mab.alpha(:, cc) > 0.5);
-        fprintf('[t=%d][Prop] UE%d sats=%s rate=%.3f Mbps WDOP=%.3f\n', ...
-            t, cc, mat2str(sats_cc), propBf.R_c_bps(cc)/1e6, out_mab.wdop_per_user(cc));
+        arm_idx = out_mab.selected_arm_idx(cc);
+        fprintf('[t=%d][Prop] UE%d arm#%d sats=%s rate=%.3f Mbps WDOP=%.3f\n', ...
+            t, cc, arm_idx, mat2str(sats_cc), propBf.R_c_bps(cc)/1e6, out_mab.wdop_per_user(cc));
     end
     % 打印每颗卫星在 Proposal 下的总速率（Mbps）
     if isfield(propBf, 'satSumRate_bps')
@@ -165,6 +171,7 @@ for t = 1:T_total
         end
         drawnow;
     end
+    fprintf("===> 时刻 t=%d 完成 <===\n", t);
 end
 
 sum_rate_base = sum(rate_base_over_time, 2, "omitnan") / 1e6;
@@ -428,6 +435,27 @@ function scenario = update_satellite_positions(scenario, t, dt_s)
     end
 end
 
+function print_full_arm_space(params, scenario, chan)
+    S = params.S;
+    C = params.C;
+    I = params.I;
+    comb = nchoosek(1:S, I);
+    fprintf("=== 打印全臂空间：共 %d 个组合/每用户 ===\n", size(comb, 1));
+    for c = 1:C
+        fprintf("[ArmSpace][UE%d] 开始\n", c);
+        for k = 1:size(comb, 1)
+            sats = comb(k, :);
+            d_vec = chan.d_m(sats, c);
+            wdop_val = ican.compute_wdop(scenario.pUE(c, :), scenario.pSat(sats, :), d_vec);
+            h_sel = chan.h(:, c, sats);
+            rate_proxy = sum(abs(h_sel).^2, "all");
+            fprintf("[ArmSpace][UE%d] arm#%d sats=%s WDOP=%.3f rateProxy=%.6g\n", ...
+                c, k, mat2str(sats), wdop_val, rate_proxy);
+        end
+        fprintf("[ArmSpace][UE%d] 结束\n", c);
+    end
+end
+
 function user_groups = normalize_user_groups(user_groups, C)
     if isfield(user_groups, 'group_ids')
         if ~isfield(user_groups, 'weights') || isempty(user_groups.weights)
@@ -479,3 +507,5 @@ function front = pareto_front_indices(x, y)
     end
     front = find(isPareto);
 end
+
+

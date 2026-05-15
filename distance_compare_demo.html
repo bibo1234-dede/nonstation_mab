@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>前后版本用户到卫星距离对比</title>
+  <style>
+    :root {
+      --bg: #0c1020;
+      --panel: rgba(18, 24, 45, 0.82);
+      --panel-2: rgba(28, 35, 62, 0.88);
+      --text: #edf2ff;
+      --muted: #aeb8d6;
+      --accent: #78dce8;
+      --accent-2: #ffb86b;
+      --danger: #ff6b6b;
+      --good: #86efac;
+      --line: rgba(255, 255, 255, 0.12);
+      --shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Inter, "Segoe UI", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 20% 20%, rgba(120, 220, 232, 0.20), transparent 26%),
+        radial-gradient(circle at 80% 10%, rgba(255, 184, 107, 0.18), transparent 24%),
+        radial-gradient(circle at 70% 75%, rgba(134, 239, 172, 0.12), transparent 28%),
+        linear-gradient(160deg, #08101f 0%, #0c1020 40%, #131a33 100%);
+    }
+
+    header {
+      padding: 28px 24px 10px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(28px, 3vw, 42px);
+      letter-spacing: 0.02em;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      line-height: 1.6;
+      max-width: 1100px;
+    }
+
+    .summary {
+      max-width: 1400px;
+      margin: 18px auto 0;
+      padding: 0 24px;
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .metric {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px 18px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .metric .k { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+    .metric .v { font-size: 22px; font-weight: 700; }
+    .metric .s { margin-top: 6px; color: var(--muted); font-size: 13px; line-height: 1.45; }
+
+    main {
+      max-width: 1400px;
+      margin: 18px auto 30px;
+      padding: 0 24px 24px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      backdrop-filter: blur(12px);
+    }
+
+    .card header {
+      padding: 18px 20px 10px;
+      margin: 0;
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .card h2 {
+      margin: 0;
+      font-size: 22px;
+    }
+
+    .tag {
+      padding: 6px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      background: rgba(120, 220, 232, 0.12);
+      color: var(--accent);
+      border: 1px solid rgba(120, 220, 232, 0.22);
+    }
+
+    .body {
+      padding: 0 20px 18px;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+
+    .controls {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 16px;
+    }
+
+    .control {
+      margin-bottom: 14px;
+    }
+
+    .control label {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 14px;
+      margin-bottom: 8px;
+      color: var(--text);
+    }
+
+    .control small { color: var(--muted); }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+    }
+
+    .value {
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .formula {
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.05);
+      color: #dbe4ff;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13px;
+      line-height: 1.55;
+      word-break: break-word;
+    }
+
+    .readout {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .pill {
+      border-radius: 14px;
+      padding: 10px 12px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid var(--line);
+    }
+
+    .pill .k { font-size: 12px; color: var(--muted); }
+    .pill .v { font-size: 18px; font-weight: 700; margin-top: 4px; }
+
+    .viz {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 10px;
+      min-height: 420px;
+    }
+
+    .note {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .footer {
+      max-width: 1400px;
+      margin: 0 auto 24px;
+      padding: 0 24px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    svg { width: 100%; height: 400px; display: block; }
+    .label { font-size: 13px; fill: #e8eeff; }
+    .muted { fill: #aeb8d6; }
+    .sat { fill: var(--accent-2); }
+    .user { fill: var(--good); }
+    .orbit { stroke: rgba(120, 220, 232, 0.55); stroke-width: 2; fill: none; }
+    .earth { fill: rgba(255, 255, 255, 0.05); stroke: rgba(255, 255, 255, 0.18); stroke-width: 2; }
+    .ring { fill: none; stroke: rgba(255, 184, 107, 0.65); stroke-width: 2.5; }
+    .link { stroke: rgba(255, 255, 255, 0.5); stroke-width: 2; stroke-dasharray: 5 6; }
+
+    @media (max-width: 1180px) {
+      main { grid-template-columns: 1fr; }
+      .summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .body { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 720px) {
+      .summary { grid-template-columns: 1fr; }
+      .readout { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>前后版本用户到卫星距离对比</h1>
+    <div class="subtitle">
+      左侧是前一版的局部环形场景：7 星、130 km 环半径、600 km 轨道高度。右侧是当前版的多轨道面 LEO 场景：18 星、600-1200 km 轨道高度、地球坐标系建模。拖动滑块可以直观看到 slant range 的变化。
+    </div>
+  </header>
+
+  <section class="summary">
+    <div class="metric">
+      <div class="k">前一版典型距离</div>
+      <div class="v">约 606 - 625 km</div>
+      <div class="s">典型值约 614 km，主要由 600 km 轨道高度和 130 km 环半径决定。</div>
+    </div>
+    <div class="metric">
+      <div class="k">当前版可见距离</div>
+      <div class="v">约 600 - 4000 km</div>
+      <div class="s">可见卫星的距离范围较大，通常越接近天顶越短，越接近地平线越长。</div>
+    </div>
+    <div class="metric">
+      <div class="k">当前版常见选中距离</div>
+      <div class="v">约 1000 - 2500 km</div>
+      <div class="s">这是更符合当前多轨道面场景的经验量级，不是固定值。</div>
+    </div>
+    <div class="metric">
+      <div class="k">当前版地平线极限</div>
+      <div class="v">约 2800 - 4060 km</div>
+      <div class="s">取决于轨道高度 600 km 到 1200 km。超过该范围通常已经不可见。</div>
+    </div>
+  </section>
+
+  <main>
+    <section class="card" id="oldCard">
+      <header>
+        <h2>前一版：局部环形场景</h2>
+        <div class="tag">clustered ring</div>
+      </header>
+      <div class="body">
+        <div class="controls">
+          <div class="control">
+            <label><span>用户在小区内的径向偏移 r</span><span class="value" id="oldRVal">0.0 km</span></label>
+            <input id="oldR" type="range" min="0" max="43.3" step="0.1" value="0" />
+            <small>0 表示小区中心，43.3 km 表示小区边缘。</small>
+          </div>
+          <div class="control">
+            <label><span>用户与卫星方向夹角 φ</span><span class="value" id="oldPhiVal">0.0°</span></label>
+            <input id="oldPhi" type="range" min="0" max="180" step="0.5" value="0" />
+            <small>0° 表示朝向同一方向，180° 表示反向。</small>
+          </div>
+          <div class="formula" id="oldFormula"></div>
+          <div class="readout">
+            <div class="pill"><div class="k">典型范围</div><div class="v" id="oldRange">606.3 - 624.6 km</div></div>
+            <div class="pill"><div class="k">当前距离</div><div class="v" id="oldDist">613.9 km</div></div>
+          </div>
+          <div class="note">
+            这里的“实际距离”主要由 600 km 的轨道高度决定，130 km 的环半径只是在平面上拉开一点横向差异，所以总体仍然在 600 多公里。
+          </div>
+        </div>
+        <div class="viz">
+          <svg viewBox="0 0 560 400" aria-label="前一版几何示意图">
+            <defs>
+              <marker id="arrowOld" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+                <path d="M0,0 L10,5 L0,10 z" fill="#edf2ff"></path>
+              </marker>
+            </defs>
+            <rect x="0" y="0" width="560" height="400" fill="transparent"></rect>
+            <circle id="oldRing" class="ring" cx="280" cy="200" r="120"></circle>
+            <circle cx="280" cy="200" r="10" class="user"></circle>
+            <text x="292" y="205" class="label">用户中心</text>
+            <circle id="oldSat" cx="400" cy="200" r="8" class="sat"></circle>
+            <line id="oldLink" x1="280" y1="200" x2="400" y2="200" class="link" marker-end="url(#arrowOld)"></line>
+            <text x="404" y="190" class="label">卫星</text>
+            <text x="26" y="34" class="label muted">轨道高度 600 km，环半径 130 km</text>
+          </svg>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" id="newCard">
+      <header>
+        <h2>当前版：多轨道面 LEO 场景</h2>
+        <div class="tag">multi-orbit</div>
+      </header>
+      <div class="body">
+        <div class="controls">
+          <div class="control">
+            <label><span>卫星轨道高度 h</span><span class="value" id="newHVal">900 km</span></label>
+            <input id="newH" type="range" min="600" max="1200" step="10" value="900" />
+            <small>轨道半径 = 地球半径 + h。当前版使用 600-1200 km 的高度随机分布。</small>
+          </div>
+          <div class="control">
+            <label><span>用户-卫星中心角 ψ</span><span class="value" id="newPsiVal">10.0°</span></label>
+            <input id="newPsi" type="range" min="0" max="40" step="0.1" value="10" />
+            <small>ψ 越大，卫星越靠近地平线，距离越长。</small>
+          </div>
+          <div class="formula" id="newFormula"></div>
+          <div class="readout">
+            <div class="pill"><div class="k">地平线极限</div><div class="v" id="newHorizon">31.9°</div></div>
+            <div class="pill"><div class="k">当前距离</div><div class="v" id="newDist">1215 km</div></div>
+          </div>
+          <div class="note" id="newNote">
+            当前角度在可视范围内。多轨道面场景里，距离可能是几百到几千公里，取决于卫星高度和几何位置。
+          </div>
+        </div>
+        <div class="viz">
+          <svg viewBox="0 0 560 400" aria-label="当前版几何示意图">
+            <defs>
+              <marker id="arrowNew" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+                <path d="M0,0 L10,5 L0,10 z" fill="#edf2ff"></path>
+              </marker>
+            </defs>
+            <rect x="0" y="0" width="560" height="400" fill="transparent"></rect>
+            <circle id="earth" class="earth" cx="280" cy="200" r="116"></circle>
+            <circle id="newOrbit" class="orbit" cx="280" cy="200" r="148"></circle>
+            <circle id="newUser" r="7" class="user"></circle>
+            <circle id="newSat2" r="8" class="sat"></circle>
+            <line id="newLink" class="link" marker-end="url(#arrowNew)"></line>
+            <text x="264" y="205" class="label">地球</text>
+            <text x="28" y="34" class="label muted">地球半径 6371 km，卫星高度随滑块变化</text>
+            <text id="newVisText" x="22" y="370" class="label muted"></text>
+          </svg>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="footer">
+    说明：前一版的距离是平面环形几何下的 slant range，量级稳定在 600 多公里；当前版是地球中心坐标系下的多轨道面 LEO 几何，可视距离更宽，通常从 600 km 到数千 km 不等。该页面适合演示量级关系，不替代 MATLAB 中的精确时变轨道仿真。
+  </div>
+
+  <script>
+    const earthRadius = 6371;
+    const prevAlt = 600;
+    const prevRing = 130;
+    const prevCell = 43.3;
+
+    const oldR = document.getElementById('oldR');
+    const oldPhi = document.getElementById('oldPhi');
+    const oldRVal = document.getElementById('oldRVal');
+    const oldPhiVal = document.getElementById('oldPhiVal');
+    const oldRange = document.getElementById('oldRange');
+    const oldDist = document.getElementById('oldDist');
+    const oldFormula = document.getElementById('oldFormula');
+    const oldSat = document.getElementById('oldSat');
+    const oldLink = document.getElementById('oldLink');
+    const oldRingSvg = document.getElementById('oldRing');
+
+    const newH = document.getElementById('newH');
+    const newPsi = document.getElementById('newPsi');
+    const newHVal = document.getElementById('newHVal');
+    const newPsiVal = document.getElementById('newPsiVal');
+    const newHorizon = document.getElementById('newHorizon');
+    const newDist = document.getElementById('newDist');
+    const newFormula = document.getElementById('newFormula');
+    const newNote = document.getElementById('newNote');
+    const newVisText = document.getElementById('newVisText');
+    const newUser = document.getElementById('newUser');
+    const newSat2 = document.getElementById('newSat2');
+    const newLink = document.getElementById('newLink');
+
+    function fmt0(x) { return Number(x).toFixed(0); }
+    function fmt1(x) { return Number(x).toFixed(1); }
+
+    function updateOld() {
+      const r = Number(oldR.value);
+      const phiDeg = Number(oldPhi.value);
+      const phi = phiDeg * Math.PI / 180;
+      const d = Math.sqrt(prevAlt * prevAlt + prevRing * prevRing + r * r - 2 * prevRing * r * Math.cos(phi));
+      const dMin = Math.sqrt(prevAlt * prevAlt + (prevRing - prevCell) * (prevRing - prevCell));
+      const dMax = Math.sqrt(prevAlt * prevAlt + (prevRing + prevCell) * (prevRing + prevCell));
+
+      oldRVal.textContent = `${fmt1(r)} km`;
+      oldPhiVal.textContent = `${fmt1(phiDeg)}°`;
+      oldRange.textContent = `${fmt1(dMin)} - ${fmt1(dMax)} km`;
+      oldDist.textContent = `${fmt1(d)} km`;
+      oldFormula.innerHTML = `d = √(h² + R² + r² - 2Rr cosφ)<br>` +
+        `h = ${prevAlt} km, R = ${prevRing} km, r = ${fmt1(r)} km, φ = ${fmt1(phiDeg)}°`;
+
+      const cx = 280, cy = 200;
+      const scale = 0.8;
+      const satX = cx + prevRing * scale;
+      const satY = cy;
+      oldSat.setAttribute('cx', satX.toFixed(1));
+      oldSat.setAttribute('cy', satY.toFixed(1));
+      oldLink.setAttribute('x1', cx);
+      oldLink.setAttribute('y1', cy);
+      oldLink.setAttribute('x2', satX.toFixed(1));
+      oldLink.setAttribute('y2', satY.toFixed(1));
+      oldRingSvg.setAttribute('r', (prevRing * scale).toFixed(1));
+    }
+
+    function updateNew() {
+      const h = Number(newH.value);
+      const psiDeg = Number(newPsi.value);
+      const Rs = earthRadius + h;
+      const psi = psiDeg * Math.PI / 180;
+      const d = Math.sqrt(earthRadius * earthRadius + Rs * Rs - 2 * earthRadius * Rs * Math.cos(psi));
+      const horizonDeg = Math.acos(earthRadius / Rs) * 180 / Math.PI;
+      const dHorizon = Math.sqrt(Rs * Rs - earthRadius * earthRadius);
+      const visible = psiDeg <= horizonDeg + 1e-9;
+
+      newHVal.textContent = `${fmt0(h)} km`;
+      newPsiVal.textContent = `${fmt1(psiDeg)}°`;
+      newHorizon.textContent = `${fmt1(horizonDeg)}°`;
+      newDist.textContent = `${fmt0(d)} km`;
+      newFormula.innerHTML = `d = √(Rᵤ² + Rₛ² - 2RᵤRₛ cosψ)<br>` +
+        `Rᵤ = ${earthRadius} km, Rₛ = ${fmt0(Rs)} km, ψ = ${fmt1(psiDeg)}°`;
+
+      if (visible) {
+        newNote.textContent = `当前角度在可视范围内。地平线极限约为 ${fmt1(horizonDeg)}°，对应距离约 ${fmt0(dHorizon)} km。`;
+        newVisText.textContent = `可视：是，当前为 ${fmt0(d)} km`;
+      } else {
+        newNote.textContent = `当前角度已经超出地平线，理论上不可见。地平线极限约为 ${fmt1(horizonDeg)}°，对应距离约 ${fmt0(dHorizon)} km。`;
+        newVisText.textContent = `可视：否，已超出地平线`;
+      }
+
+      const cx = 280, cy = 200;
+      const earthScale = 0.018;
+      const orbitScale = (earthRadius + h) * earthScale;
+      const userX = cx + 116;
+      const userY = cy;
+      const satAngle = psi;
+      const satX = cx + orbitScale * Math.cos(satAngle);
+      const satY = cy - orbitScale * Math.sin(satAngle);
+
+      newUser.setAttribute('cx', userX.toFixed(1));
+      newUser.setAttribute('cy', userY.toFixed(1));
+      newSat2.setAttribute('cx', satX.toFixed(1));
+      newSat2.setAttribute('cy', satY.toFixed(1));
+      newLink.setAttribute('x1', userX.toFixed(1));
+      newLink.setAttribute('y1', userY.toFixed(1));
+      newLink.setAttribute('x2', satX.toFixed(1));
+      newLink.setAttribute('y2', satY.toFixed(1));
+      document.getElementById('newOrbit').setAttribute('r', orbitScale.toFixed(1));
+    }
+
+    oldR.addEventListener('input', updateOld);
+    oldPhi.addEventListener('input', updateOld);
+    newH.addEventListener('input', updateNew);
+    newPsi.addEventListener('input', updateNew);
+
+    updateOld();
+    updateNew();
+  </script>
+</body>
+</html>

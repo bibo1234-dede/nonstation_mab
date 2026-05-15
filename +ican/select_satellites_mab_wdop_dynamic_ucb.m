@@ -35,7 +35,7 @@ if ~useGrouping
 end
 
 comb = nchoosek(1:S, I);
-arm_bank = build_candidate_arms(params, scenario, chan, comb, C, maxArms, candidatePoolSize, candidateRateWeight, candidateWdopWeight, wdopThreshold);
+arm_bank = build_candidate_arms(params, scenario, chan, comb, C, maxArms, candidatePoolSize, candidateRateWeight, candidateWdopWeight, wdopThreshold, user_groups);
 
 if isempty(Q) || ~isstruct(Q) || ~isfield(Q, "q1") || ~isfield(Q, "q2") || ~isfield(Q, "arms")
     Q = struct();
@@ -218,8 +218,16 @@ t_last_served(:) = t;
 
 end
 
-function arm_bank = build_candidate_arms(params, scenario, chan, comb, C, maxArms, candidatePoolSize, candidateRateWeight, candidateWdopWeight, wdopThreshold)
+function arm_bank = build_candidate_arms(params, scenario, chan, comb, C, maxArms, candidatePoolSize, candidateRateWeight, candidateWdopWeight, wdopThreshold, user_groups)
 arm_bank = repmat(struct("arms", [], "wdop", [], "penalty", [], "rateProxy", [], "candidateScore", []), C, 1);
+
+% 提取用户优先级（如果存在）
+user_priority_levels = ones(C, 1);  % 默认都是优先级1
+if nargin >= 11 && ~isempty(user_groups) && isfield(user_groups, "user_priority_level")
+    user_priority_levels = user_groups.user_priority_level(:);
+elseif nargin >= 11 && ~isempty(user_groups) && isfield(user_groups, "group_assignment")
+    user_priority_levels = user_groups.group_assignment(:);
+end
 
 for c = 1:C
     wdopVals = zeros(size(comb, 1), 1);
@@ -244,7 +252,13 @@ for c = 1:C
 
     rateScore = normalize_minmax(rateProxyVals(feasibleMask));
     wdopScore = normalize_minmax(feasibleWdop);
-    candidateScore = candidateRateWeight * rateScore - candidateWdopWeight * wdopScore;
+    
+    % 根据优先级调整权重：高优先级用户更看重WDOP（低值），低优先级用户更看重速率
+    user_level = user_priority_levels(c);
+    level_weight_factor = (4 - user_level) / 2;  % 优先级1->1.5, 优先级2->1.0, 优先级3->0.5
+    adjusted_wdopWeight = candidateWdopWeight * level_weight_factor;
+    
+    candidateScore = candidateRateWeight * rateScore - adjusted_wdopWeight * wdopScore;
     [~, order] = sort(candidateScore, "descend");
     keepCount = min(max(candidatePoolSize, maxArms), numel(order));
     keepIdx = order(1:keepCount);

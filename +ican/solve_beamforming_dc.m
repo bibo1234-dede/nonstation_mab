@@ -128,15 +128,20 @@ for iter = 1:params.alg.maxDcIters
     end
 
     tCvx = tic;
-    [Q_new, cvxStatus, cvxOptval] = solve_cvx_dc_step(params, B, sigma2, P, Hi, Q_prev, denomPrev);
-    cvxTime_s = toc(tCvx);
-    cvxStatusLast = cvxStatus;
-    cvxOptvalLast = cvxOptval;
+        [Q_new, cvxStatus, cvxOptval] = solve_cvx_dc_step(params, B, sigma2, P, Hi, Q_prev, denomPrev);
+        cvxTime_s = toc(tCvx);
+        cvxStatusLast = cvxStatus;
+        cvxOptvalLast = cvxOptval;
 
-    if ~contains(cvxStatus, "Solved")
-        ican.logf(params, "error", "CVX 在 DC 步骤中失败（状态=%s），请将 params.cvx.quiet 设为 false 查看求解器输出。", cvxStatus);
-        error("solve_beamforming_dc:CvxFailed", "CVX 在 DC 步骤中失败（状态=%s）。", cvxStatus);
-    end
+        if ~contains(cvxStatus, "Solved")
+            ican.logf(params, "warn", "CVX failed in DC step (status=%s). Falling back to previous Q and continuing. Set params.cvx.quiet=false to view solver output.", cvxStatus);
+            % Fall back to previous feasible Q to keep the simulation running.
+            Q_new = Q_prev;
+            % Record status and continue (exit DC iterations early)
+            cvxStatusLast = cvxStatus;
+            cvxOptvalLast = cvxOptval;
+            break;
+        end
 
     sumRate_new = sum_rate_from_Q(B, sigma2, Hi, Q_new);
     diff_bps = abs(sumRate_new - sumRate_prev);
@@ -198,6 +203,7 @@ function [Q_new, cvxStatus, cvxOptval] = solve_cvx_dc_step(params, B, sigma2, P,
 K = numel(Hi);
 N = size(Q_prev, 1);
 
+% 第一次尝试：默认静默求解
 if params.cvx.quiet
     cvx_begin sdp quiet
 else

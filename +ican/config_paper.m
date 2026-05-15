@@ -14,101 +14,86 @@ opts = parser.Results;
 params = struct();
 
 % --- 系统参数 ---
-params.satHeight_m = 600e3;
-% 卫星轨道高度范围（015 仓库使用范围 600km - 1200km）
-params.satAltMin_m = 600e3;
-params.satAltMax_m = 1200e3;
-params.cellRadius_m = 43.3e3;
-params.Nx = 4;
-params.Ny = 4;
-params.fc_Hz = 2e9;%（4）
-params.bandwidth_Hz = 50e6; % 对应远程复现代码的带宽（10）
-% 使用与远程仓库一致的发射功率标度（远程 config: P_max = 30 dBm -> 0 dBW）
-params.P_dBw = 0; % dBW
-params.noisePSD_dBmHz = -174;
-params.noisePSD_WHz = 10^((params.noisePSD_dBmHz - 30)/10);
-params.sigma2_W = params.noisePSD_WHz * params.bandwidth_Hz;
-params.gdopThreshold = 6; % 对应公式(9c)中的阈值 gamma
-params.bfConvThresh_bps = 2e6; % 对应算法1中的收敛阈值 delta
+params.satHeight_m = 600e3;        % 参考卫星轨道高度，单位 m
+% 卫星轨道高度范围：用于生成多轨道面卫星时抽样的上下界
+params.satAltMin_m = 600e3;        % 最低轨道高度，单位 m
+params.satAltMax_m = 1200e3;       % 最高轨道高度，单位 m
+params.Nx = 8;                     % 阵列 x 方向天线数
+params.Ny = 8;                     % 阵列 y 方向天线数
+params.fc_Hz = 2e9;                % 载波频率，单位 Hz
+params.bandwidth_Hz = 50e6;        % 系统带宽，单位 Hz
+% 发射功率的 dBW 标度；0 dBW = 1 W，20 dBW = 100 W
+params.P_dBw = 20;
+params.noisePSD_dBmHz = -174;      % 热噪声功率谱密度，单位 dBm/Hz
+params.noisePSD_WHz = 10^((params.noisePSD_dBmHz - 30)/10); % dBm/Hz -> W/Hz
+params.sigma2_W = params.noisePSD_WHz * params.bandwidth_Hz;  % 接收机噪声功率
+params.bfConvThresh_bps = 2e6;     % 波束成形 DC 迭代收敛阈值，单位 bps
 
 % --- 派生参数 ---
-params.c0 = 299792458; % 光速
-params.lambda_m = params.c0 / params.fc_Hz; % 波长
-params.N = params.Nx * params.Ny;
-params.P_W = 10^(params.P_dBw/10); % dBw -> W
+params.c0 = 299792458;             % 光速，单位 m/s
+params.lambda_m = params.c0 / params.fc_Hz; % 载波波长，单位 m
+params.N = params.Nx * params.Ny;  % 单颗卫星阵列总天线数
+params.P_W = 10^(params.P_dBw/10); % 发射功率，单位 W
 
 % --- 等效信道增益补偿（保持为适中数值，避免 CVX 数值病态）---
-params.effectiveGain_dB = 10;                         % dB
-params.effectiveGain_linear = 10^(params.effectiveGain_dB / 10);  % 功率倍数
+params.effectiveGain_dB = 10;      % 额外信道增益补偿，单位 dB
+params.effectiveGain_linear = 10^(params.effectiveGain_dB / 10);  % 对应线性功率倍数
 
 % --- 问题规模 ---
-params.S = opts.S;
-params.C = opts.C;
-params.I = opts.I;
+params.S = opts.S;                 % 卫星总数
+params.C = opts.C;                 % 用户总数
+params.I = opts.I;                 % 每个用户选择的卫星数
 
 % --- Fig.3 几何场景默认值 ---
  
 params.scenario = struct();
 % 采用与 GitHub 015 仓库一致的默认场景风格：多轨道面卫星 + 局部聚集用户
-params.scenario.satLayout = "multi_orbit"; % 可选: multi_orbit / uniform_ring / clustered_ring
-params.scenario.satCoreAngles_deg = [0 90 180 270];
-params.scenario.satExtraAngles_deg = [15 30 45];
-params.scenario.uePosMode = "github_offsets"; % 用户在某一局部服务区附近聚集（如北京附近）
-% 可选：使用远端仓库式的经纬度偏移向量来按规则分散用户（单位：度）
-params.scenario.geo_lat_deg = 0;   % 参考经度/纬度（deg），远端仓库常用 geo_lat=0, geo_lon=100
-params.scenario.geo_lon_deg = 100;
-params.scenario.lu_lat_offset = [0, 2, 4, 6];
-params.scenario.lu_lon_offset = [0, 0, 0, 0];
+params.scenario.satLayout = "multi_orbit"; % 卫星布局模式：multi_orbit / uniform_ring / clustered_ring
 
 % --- 信道模型开关（对应公式(1)） ---
-params.atmosAtten = 1.0; % 对应公式(1)中的大气衰减项，论文未给出明确数值
+params.atmosAtten = 1.0; % 大气衰减系数，1 表示不额外衰减
 
 % --- CVX 求解设置 ---
 params.cvx = struct();
-params.cvx.solver = "sdpt3";
-params.cvx.quiet = true; % 设为 false 可查看完整求解日志
+params.cvx.solver = "mosek";      % CVX 求解器
+params.cvx.quiet = true;          % true 时关闭 CVX 详细输出
 
 % --- 算法上限（安全保护） ---
 params.alg = struct();
-params.alg.maxDcIters = 5;
-params.alg.utilityTol = 1e-9; % 若新效用不低于旧效用减去该容差，则接受
-params.alg.maxCfgPasses = 10; % 允许多轮配置迭代，直到收敛
+params.alg.maxDcIters = 5;        % 单次卫星波束成形的 DC 最大迭代次数 (降低以提速 & 减少 MOSEK 数值问题)
 
 % --- 用户分组配置 ---
+% 仅支持 by_level（随机优先级分组）模式
 params.grouping = struct();
-params.useGrouping = false;
-params.grouping.method = "spectral"; 
-params.grouping.numGroups = 3;
-params.grouping.sigma_d = 50e3;
-params.grouping.sigma_h = 0.5;
+params.useGrouping = false;           % 是否启用用户分组
+params.grouping.numLevels = 3;        % 按级别分组时的级别数
 
 % --- MAB 配置 ---
-params.mabMaxArms = 20;
-params.candidatePoolSize = 80;
-params.candidateRateWeight = 1.0;
-params.candidateWdopWeight = 0.25;
-params.debugPrintCandidateArms = false;
-params.debugPrintSelection = false;
-params.debugPrintCandidateLimit = 12;
-params.mabRho = 0.98;
-params.mabCucb = 1.0;
-params.wdopPenaltyLambda = 0.12;
-params.wdopSoftMargin = 1.5;
-params.satLoadCap = 4;
-params.satLoadPenaltyLambda = 0.5;
-params.groupReuseBonusLambda = 0.15;
-params.userReusePenaltyLambda = 0.35;
-params.useParetoUCB = false;
-params.paretoAlpha = 0.5;
+params.mabMaxArms = 50;             % 每个用户保留的最大候选臂数
+params.candidatePoolSize = 120;      % 候选臂池大小
+params.candidateRateWeight = 1.0;   % 候选臂构建时的速率权重
+params.candidateWdopWeight = 0.25;  % 候选臂构建时的 WDOP 权重
+params.debugPrintCandidateArms = false; % 是否打印候选臂
+params.debugPrintSelection = false;      % 是否打印每轮选择结果
+params.debugPrintCandidateLimit = 12;    % 最多打印多少个候选臂
+params.mabRho = 0.98;               % 非稳态遗忘因子
+params.mabCucb = 1.0;               % UCB 探索系数
+params.wdopPenaltyLambda = 0.12;    % WDOP 惩罚权重
+params.wdopSoftMargin = 1.5;        % WDOP 软惩罚边际
+params.satLoadCap = 6;              % 单颗卫星允许的最大负载（从4降到3，减少竞争）
+params.satLoadPenaltyLambda = 2.0;  % 卫星负载惩罚权重（从0.5提到1.0，加强分散激励）
+params.groupReuseBonusLambda = 0.10; % 同组卫星重用奖励权重（降低，减弱聚集效应）
+params.userReusePenaltyLambda = 0.50; % 跨组卫星重用惩罚权重（提高，鼓励分散）
+params.useParetoUCB = false;        % 是否启用 Pareto-UCB
+params.paretoAlpha = 0.5;           % Pareto-UCB 中双目标融合系数
 
 % --- 日志配置 ---
 params.log = struct();
-params.log.level = "info"; % 可选：debug / info / warn / error
-params.log.toFile = true;
-params.log.dir = fullfile("matlab", "logs");
+params.log.level = "info";         % 日志级别：debug / info / warn / error
+params.log.printArmSpace = false;   % 是否打印所有臂空间组合
 
 % --- 可复现性 ---
-params.randomSeed = opts.randomSeed;
+params.randomSeed = opts.randomSeed; % 随机种子
 
 % --- WDOP 阈值 ---
-params.wdopThreshold = 6.0; 
+params.wdopThreshold = 6.0;         % WDOP 最大允许阈值
